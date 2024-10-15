@@ -1,28 +1,19 @@
-# Guided Cooperation in Hierarchical Reinforcement Learning via Model-based Rollout (GCMR)
-This is a PyTorch implementation for our paper: [Guided Cooperation in Hierarchical Reinforcement Learning via Model-based Rollout](https://ieeexplore.ieee.org/document/10633748).
-```bibtex
-@article{wang2024guided,
-  title={Guided Cooperation in Hierarchical Reinforcement Learning via Model-Based Rollout},
-  author={Wang, Haoran and Tang, Zeshen and Sun, Yaoru and Wang, Fang and Zhang, Siyu and Chen, Yeming},
-  journal={IEEE Transactions on Neural Networks and Learning Systems},
-  year={2024},
-  doi={https://doi.org/10.1109/TNNLS.2024.3425809}
-}
-```
+> # :sweat_drops: :seedling: :point_right: :sunflower: :sun_with_face: :ear_of_rice: The code will be released soon ...
+
+
+# HG2P: Hippocampus-inspired High-reward Graph and Model-Free Q-Gradient Penalty for Path Planning and Motion Control
+This is a PyTorch implementation for our paper: [HG2P: Hippocampus-inspired High-reward Graph and Model-Free Q-Gradient Penalty for Path Planning and Motion Control](https://arxiv.org/abs/2410.09505).
+
 Our code is based on official implementation of [HIGL](https://github.com/junsu-kim97/HIGL) (NeurIPS 2021).
 
-By integrating the proposed GCMR and ACLG, a disentangled variant of HIGL (see ***Branch*** "[ACLG](https://github.com/HaoranWang-TJ/ACLG_GCMR/tree/ACLG)" or "[ACLG_Complex_Tasks](https://github.com/HaoranWang-TJ/ACLG_GCMR/tree/ACLG_Complex_Tasks)" in another repository [ACLG_GCMR](https://github.com/HaoranWang-TJ/ACLG_GCMR) for details), we achieved a remarkable SOTA.
-
-### Update
-:fire: [2024-10-12] We've modified the configuration of the Ant Push task, and the improved performance is presented in our latest research: "[HG2P: Hippocampus-inspired High-reward Graph and Model-Free Q-Gradient Penalty for Path Planning and Motion Control](https://arxiv.org/abs/2410.09505)" (GitHub repository: "[HaoranWang-TJ/HG2P_ACLG_official](https://github.com/HaoranWang-TJ/HG2P_ACLG_official)").
-
 ## Branch Tree
-We implemented our code based on our another repository [ACLG_GCMR](https://github.com/HaoranWang-TJ/ACLG_GCMR) , which has a well-organized code structure by implementing its code 'Branch by Branch'. This repository was implemented as follows:
+We implemented our code based on our another repository [GCMR_ACLG_official](https://github.com/HaoranWang-TJ/GCMR_ACLG_official), which serves as a baseline and comparison.
+This repository was implemented as follows:
 
 ```mermaid
 flowchart TD
-    S[HaoranWang-TJ/ACLG_GCMR/tree/ACLG_GCMR_Complex_Tasks] --> |A copy| A[ACLG_GCMR_Complex_Tasks]
-    A[ACLG_GCMR_Complex_Tasks] -->|Minor code refactoring| B[main]
+    S[HaoranWang-TJ/GCMR_ACLG_official/tree/main] --> |A copy| A[GCMR_ACLG_official]
+    A[GCMR_ACLG_official] -->|Replace GCMR with HG2P| B[main]
 ```
 
 ## Installation
