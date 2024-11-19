@@ -246,6 +246,8 @@ def run_higl(args):
     env.seed(args.seed)
     torch.manual_seed(args.seed)
     np.random.seed(args.seed)
+    if torch.cuda.is_available():
+        torch.cuda.manual_seed(args.seed)
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
@@ -392,6 +394,16 @@ def run_higl(args):
             rnd_input_dim = state_dim if not args.use_ag_as_input else controller_goal_dim
             RND = higl.RandomNetworkDistillation(rnd_input_dim, args.rnd_output_dim, args.rnd_lr, args.use_ag_as_input)
             print("Novelty PQ is generated")
+            if 'TopK' in args.sampling_mix_mode or 'RW' in args.sampling_mix_mode or 'HR' in args.sampling_mix_mode:
+                important_pq = utils.TrajRwdQueueHR(traj_max_num=args.traj_max_num, alpha=args.weighting_alpha,
+                                                    mix_mode=args.sampling_mix_mode)
+                if args.load_replay_buffer:
+                    important_pq.load("{}/{}_{}_{}_{}_important_pq_buffer.npz".format(args.save_dir, args.env_name, args.algo, args.version, args.seed))
+                    novelty_pq.load("{}/{}_{}_{}_{}_novelty_pq_buffer.npz".format(args.save_dir, args.env_name, args.algo, args.version, args.seed))
+                    print("Important_pq and novelty_pq loaded")
+                print("Use the weighted sampling")
+            else:
+                important_pq = None
         else:
             raise NotImplementedError
     else:
@@ -409,20 +421,22 @@ def run_higl(args):
         if total_timesteps != 0 and not just_loaded and \
             args.step_update and total_timesteps % args.step_update_interval == 0 and len(controller_buffer) >= 5 * args.ctrl_batch_size:
             # Train controller
-            use_mgp = args.ctrl_mgp_lambda > 0 and args.use_model_based_rollout and total_timesteps >= args.ctrl_gcmr_start_step
+            use_mgp = args.ctrl_mgp_lambda > 0 and total_timesteps >= args.ctrl_gcmr_start_step
             use_osrp = args.ctrl_osrp_lambda > 0 and args.use_model_based_rollout and total_timesteps >= args.ctrl_gcmr_start_step
             ctrl_act_loss, ctrl_crit_loss = controller_policy.train(controller_buffer,
                                                                     args.step_update_interval,
                                                                     batch_size=args.ctrl_batch_size,
                                                                     discount=args.ctrl_discount,
                                                                     tau=args.ctrl_tau,
-                                                                    fkm_obj=fkm_obj if (use_mgp or use_osrp) else None,
+                                                                    fkm_obj=fkm_obj if args.use_model_based_rollout else None,
                                                                     mgp_lambda=args.ctrl_mgp_lambda if use_mgp else .0,
+                                                                    mgp_obs_noise=args.ctrl_gp_obs_noise,
                                                                     osrp_lambda=args.ctrl_osrp_lambda if use_osrp else .0,
-                                                                    manage_replay_buffer=manager_buffer if use_osrp else None,
-                                                                    manage_actor=manager_policy.actor if use_osrp else None,
-                                                                    manage_critic=manager_policy.critic if use_osrp else None,
+                                                                    manage_replay_buffer=manager_buffer,
+                                                                    manage_actor=manager_policy.actor,
+                                                                    manage_critic=manager_policy.critic,
                                                                     sg_scale=man_scale,
+                                                                    rew_scale=args.ctrl_rew_scale,
                                                                     )
             skip_ctrl_train += args.step_update_interval
 
@@ -462,6 +476,7 @@ def run_higl(args):
                                             a_net=a_net,
                                             r_margin=r_margin,
                                             novelty_pq=novelty_pq,
+                                            important_pq=important_pq,
                                             total_timesteps=total_timesteps,
                                             fkm_obj=fkm_obj if args.use_model_based_rollout else None,
                                             exp_w=args.rollout_exp_w if 0 < args.rollout_exp_w < 1 else 1.,
@@ -502,6 +517,8 @@ def run_higl(args):
                             novelty = RND.get_novelty(np.array(ep_obs_seq).copy())
                         novelty_pq.add_list(ep_obs_seq, ep_ac_seq, list(novelty), a_net=a_net)
                         novelty_pq.squeeze_by_kth(k=args.n_landmark_novelty)
+                        if important_pq is not None:
+                            important_pq.add(ep_obs_seq, ep_ac_seq, env_reward_sum, goal)
                     else:
                         raise NotImplementedError
 
@@ -511,20 +528,22 @@ def run_higl(args):
 
                 if not args.step_update:
                     # Train controller
-                    use_mgp = args.ctrl_mgp_lambda > 0 and args.use_model_based_rollout and total_timesteps >= args.ctrl_gcmr_start_step
+                    use_mgp = args.ctrl_mgp_lambda > 0 and total_timesteps >= args.ctrl_gcmr_start_step
                     use_osrp = args.ctrl_osrp_lambda > 0 and args.use_model_based_rollout and total_timesteps >= args.ctrl_gcmr_start_step
                     ctrl_act_loss, ctrl_crit_loss = controller_policy.train(controller_buffer,
                                                                             episode_timesteps,
                                                                             batch_size=args.ctrl_batch_size,
                                                                             discount=args.ctrl_discount,
                                                                             tau=args.ctrl_tau,
-                                                                            fkm_obj=fkm_obj if (use_mgp or use_osrp) else None,
+                                                                            fkm_obj=fkm_obj if args.use_model_based_rollout else None,
                                                                             mgp_lambda=args.ctrl_mgp_lambda if use_mgp else .0,
+                                                                            mgp_obs_noise=args.ctrl_gp_obs_noise,
                                                                             osrp_lambda=args.ctrl_osrp_lambda if use_osrp else .0,
-                                                                            manage_replay_buffer=manager_buffer if use_osrp else None,
-                                                                            manage_actor=manager_policy.actor if use_osrp else None,
-                                                                            manage_critic=manager_policy.critic if use_osrp else None,
+                                                                            manage_replay_buffer=manager_buffer,
+                                                                            manage_actor=manager_policy.actor,
+                                                                            manage_critic=manager_policy.critic,
                                                                             sg_scale=man_scale,
+                                                                            rew_scale=args.ctrl_rew_scale,
                                                                             )
 
                     if episode_num % 10 == 0:
@@ -554,6 +573,7 @@ def run_higl(args):
                                                 a_net=a_net,
                                                 r_margin=r_margin,
                                                 novelty_pq=novelty_pq,
+                                                important_pq=important_pq,
                                                 total_timesteps=total_timesteps,
                                                 fkm_obj=fkm_obj if args.use_model_based_rollout else None,
                                                 exp_w=args.rollout_exp_w if 0 < args.rollout_exp_w < 1 else 1.,
@@ -604,6 +624,8 @@ def run_higl(args):
                     if args.save_replay_buffer:
                         manager_buffer.save("{}/{}_{}_{}_{}_manager_buffer".format(args.save_dir, args.env_name, args.algo, args.version, args.seed))
                         controller_buffer.save("{}/{}_{}_{}_{}_controller_buffer".format(args.save_dir, args.env_name, args.algo, args.version, args.seed))
+                        important_pq.save("{}/{}_{}_{}_{}_important_pq_buffer".format(args.save_dir, args.env_name, args.algo, args.version, args.seed))
+                        novelty_pq.save("{}/{}_{}_{}_{}_novelty_pq_buffer".format(args.save_dir, args.env_name, args.algo, args.version, args.seed))
 
                 # Train adjacency network
                 if args.algo in ["higl", "hrac", "aclg"]:
@@ -685,6 +707,7 @@ def run_higl(args):
             traj_buffer.append(achieved_goal)
 
             done = False
+            env_reward_sum = 0
             episode_reward = 0
             episode_timesteps = 0
             just_loaded = False
@@ -714,6 +737,7 @@ def run_higl(args):
 
         # Update cumulative reward for the manager
         manager_transition['reward'] += manager_reward * args.man_rew_scale
+        env_reward_sum += manager_reward * args.man_rew_scale
 
         next_goal = next_tup["desired_goal"]
         next_achieved_goal = next_tup['achieved_goal']

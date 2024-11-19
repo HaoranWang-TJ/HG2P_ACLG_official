@@ -8,7 +8,9 @@ import pandas as pd
 
 import random
 
-from functools import total_ordering
+from functools import total_ordering, reduce
+from scipy.special import softmax
+from sklearn.linear_model import LinearRegression
 # from algo.higl import var
 
 from itertools import compress
@@ -327,6 +329,10 @@ def unravel_elems(elems):
     return tuple(map(list, zip(*[(elem.state, elem.score) for elem in elems])))
 
 
+def unravel_elems_ag(elems):
+    return tuple(map(list, zip(*[(elem.achieved_goal, elem.score) for elem in elems])))
+
+
 class PriorityQueue:
     def __init__(self, top_k, close_thr=0.1, discard_by_anet=False):
         self.elems = []
@@ -420,6 +426,144 @@ class PriorityQueue:
 
     def sample_by_novelty_weight(self):
         raise NotImplementedError
+
+    def save(self, file):
+        np.savez_compressed(file, elems=self.elems, top_k=self.top_k, close_thr=self.close_thr)
+
+    def load(self, file):
+        with np.load(file, allow_pickle=True) as data:
+            self.elems = data['elems']
+            self.top_k = data['top_k']
+            self.close_thr = data['close_thr']
+
+
+class TrajRwdQueue:
+
+    def __init__(self, traj_max_num=2000):
+        self.elems = []
+        # rewards
+        self.G = []
+        # episode lengths
+        self.T = []
+        # s(t0)
+        self.s0 = []
+        # goals
+        self.goals = []
+        self.elems_state_tensor = None
+        self.elems_achieved_goal_tensor = None
+
+        self.max_size = traj_max_num
+
+    def __len__(self):
+        return len(self.elems)
+
+    def add(self, state_traj, achieved_goal_traj, reward, goal=None):
+        new_elems = StorageElement(state=state_traj, achieved_goal=achieved_goal_traj, score=reward)
+        if len(self.elems) >= self.max_size:
+            s0g = np.hstack([state_traj[0], goal])
+            s0gs = np.hstack([self.s0, self.goals])
+            s0gs_mse_sorti = np.argsort(np.sum((s0gs - s0g) ** 2, axis=-1))
+            s0gs_mse_sorti = s0gs_mse_sorti[:int(self.max_size * 0.1)]
+            replaced_i = np.argsort(np.array(self.G)[s0gs_mse_sorti])[0]
+            replaced_i = s0gs_mse_sorti[replaced_i]
+            if self.G[replaced_i] <= reward:
+                self.elems[replaced_i] = new_elems
+                self.G[replaced_i] = reward
+                self.T[replaced_i] = len(state_traj)
+                self.s0[replaced_i] = state_traj[0]
+                self.goals[replaced_i] = goal
+            else:
+                # drop out this record.
+                pass
+        else:
+            self.elems.append(new_elems)
+            self.G.append(reward)
+            self.T.append(len(state_traj))
+            self.s0.append(state_traj[0])
+            self.goals.append(goal)
+
+    def get_states(self, sample_num=1e4):
+        _sorted_elems = sorted(self.elems, reverse=True)
+        _states, _ = unravel_elems(_sorted_elems)
+        _states = [item for trajs in _states for item in trajs]
+        _ags, _ = unravel_elems_ag(_sorted_elems)
+        _ags = [item for trajs in _ags for item in trajs]
+        self.elems_state_tensor = torch.FloatTensor(np.array(_states)[:int(sample_num)]).to(device)
+        self.elems_achieved_goal_tensor = torch.FloatTensor(np.array(_ags)[:int(sample_num)]).to(device)
+
+        return self.elems_state_tensor
+
+    def get_landmarks(self, sample_num=1e4):
+        return self.elems_achieved_goal_tensor
+
+    def save(self, file):
+        np.savez_compressed(file, max_size=self.max_size, elems=self.elems,
+                            G=self.G, T=self.T, s0=self.s0, goals=self.goals)
+
+    def load(self, file):
+        with np.load(file, allow_pickle=True) as data:
+            self.max_size = data['max_size']
+            self.elems = data['elems']
+            self.G = data['G']
+            self.T = data['T']
+            self.s0 = data['s0']
+            self.goals = data['goals']
+
+
+class TrajRwdQueueRW(TrajRwdQueue):
+
+    def __init__(self, traj_max_num=2000, alpha=0.1, mix_mode='HR'):
+        self.alpha = alpha, # Temperature of the softmax. The higher, the closer to uniform distribution.
+        self.mix_mode = mix_mode # TopK, HR, RW, {TopK} U {HR}, {Uniform} U {HR}, {TopK} U {Uniform} U {HR}
+        super().__init__(traj_max_num)
+
+    def get_states(self, sample_num=1e4):
+        if 'TopK' in self.mix_mode:
+            super().get_states(sample_num)
+        if 'HR' in self.mix_mode or 'RW' in self.mix_mode:
+            _sample_probs = self._compute_sample_probs()
+            _states, _ = unravel_elems(self.elems)
+            _states = [item for trajs in _states for item in trajs]
+            _ags, _ = unravel_elems_ag(self.elems)
+            _ags = [item for trajs in _ags for item in trajs]
+            _cache_indices = np.random.choice(
+                range(len(_states)),
+                sample_num,
+                p=_sample_probs)
+            if 'TopK' in self.mix_mode:
+                self.elems_state_tensor = torch.cat((torch.FloatTensor(np.array(_states)[_cache_indices]).to(device), self.elems_state_tensor), dim=0)
+                self.elems_achieved_goal_tensor = torch.cat((torch.FloatTensor(np.array(_ags)[_cache_indices]).to(device), self.elems_achieved_goal_tensor), dim=0)
+            else:
+                self.elems_state_tensor = torch.FloatTensor(np.array(_states)[_cache_indices]).to(device)
+                self.elems_achieved_goal_tensor = torch.FloatTensor(np.array(_ags)[_cache_indices]).to(device)
+        return self.elems_state_tensor
+
+    def _compute_sample_probs(self):
+        G = self.G
+        T = self.T
+        G_it = np.asarray(reduce(lambda x, y: x + y, [[G_i] * T_i for G_i, T_i in zip(G, T)]))
+        w_it = (G_it - G_it.min()) / (G_it.max() - G_it.min())
+        w_it = softmax(G_it / self.alpha)
+        return w_it
+
+
+class TrajRwdQueueHR(TrajRwdQueueRW):
+
+    def __init__(self, traj_max_num=2000, alpha=0.1, mix_mode='HR'):
+        super().__init__(traj_max_num, alpha, mix_mode)
+
+    def _compute_sample_probs(self, n_jobs=16):
+        G = self.G
+        T = self.T
+        G_it = np.asarray(reduce(lambda x, y: x + y, [[G_i] * T_i for G_i, T_i in zip(G, T)]))
+        s0g = np.hstack([np.array(self.s0)[..., :3], self.goals])
+        V = LinearRegression(n_jobs=n_jobs).fit(s0g, G).predict(s0g)
+        V_it = np.asarray(reduce(lambda x, y: x + y, [[V_i] * T_i for V_i, T_i in zip(V, T)]))
+        A_it = G_it - V_it
+        A_it = (A_it - A_it.min()) / np.clip(A_it.max() - A_it.min(), a_min=1e-6, a_max=None)
+        w_it = softmax(A_it / self.alpha)
+        w_it /= w_it.sum() # Avoid numerical errors
+        return w_it
 
 
 class RunningMeanStd(object):

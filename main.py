@@ -16,7 +16,7 @@ parser.add_argument("--eval_freq", default=5e3, type=float)
 parser.add_argument("--eval_episode_num", default=10, type=int)
 parser.add_argument("--max_timesteps", default=5e6, type=float)
 
-# TODO: GCMR: The step_update is optional to update the agent more frequently.
+# GCMR: The step_update is optional to update the agent more frequently.
 parser.add_argument('--step_update', action="store_true")
 parser.add_argument("--step_update_interval", default=50, type=int)
 
@@ -37,7 +37,7 @@ parser.add_argument("--candidate_goals", default=10, type=int)
 parser.add_argument("--manager_propose_freq", "-k", default=10, type=int)
 parser.add_argument("--train_manager_freq", default=10, type=int)
 parser.add_argument("--discount", default=0.99, type=float)
-# TODO: Rollout-based Off-policy correction
+# Rollout-based Off-policy correction
 parser.add_argument("--correction_type", default="m-OPC", type=str, choices=["m-OPC", "OPC", "OSP", "HAC", 'NOR']
                     , help="m-OPC or OPC for higl-relabeling w/wo model; OSP or HAC for hac-relabeling w/wo model; nor for no relabeling")
 parser.add_argument("--use_model_based_rollout", action="store_true")
@@ -45,7 +45,7 @@ parser.add_argument("--osp_delta", default=0., type=float)
 parser.add_argument("--osp_delta_update_rate", default=0., type=float)
 parser.add_argument("--rollout_exp_w", default=1., type=float)
 
-# TODO: GCMR: Forward Kinematic Model
+# GCMR: Forward Kinematic Model
 parser.add_argument("--fkm_hidden_size", default=256, type=int)
 parser.add_argument("--fkm_hidden_layer_num", default=3, type=int)
 parser.add_argument("--fkm_network_num", default=5, type=int)
@@ -63,10 +63,12 @@ parser.add_argument("--ctrl_act_lr", default=1e-4, type=float)
 parser.add_argument("--ctrl_crit_lr", default=1e-3, type=float)
 parser.add_argument("--ctrl_discount", default=0.95, type=float)
 
-# TODO: GCMR: MGP + OSRP
-parser.add_argument("--ctrl_mgp_lambda", default=0., type=float)
+# GCMR: MGP + OSRP
+parser.add_argument("--ctrl_gp_lambda", "--ctrl_mgp_lambda", dest="ctrl_mgp_lambda", default=0., type=float)
+# TODO: HG2P: Model-Free GP
+parser.add_argument("--ctrl_gp_obs_noise", default=1., type=float, help="Noise of states and subgoals for the model-free local Lipschitzness")
 parser.add_argument("--ctrl_osrp_lambda", default=0., type=float)
-parser.add_argument("--ctrl_gcmr_start_step", default=20000, type=int)
+parser.add_argument("--ctrl_gp_start_step", "--ctrl_gcmr_start_step", dest="ctrl_gcmr_start_step", default=20000, type=int)
 
 # Noise Parameters
 parser.add_argument("--noise_type", default="normal", type=str, choices=["normal", "ou"])
@@ -93,6 +95,10 @@ parser.add_argument("--landmark_loss_coeff", default=20., type=float)
 parser.add_argument("--delta", type=float, default=2)
 parser.add_argument("--adj_factor", default=0.5, type=float)
 
+# TODO: HG2P: Weighted Sampling
+parser.add_argument("--sampling_mix_mode", type=str, default='HR', choices=["Uniform", "HR", "TopK", "HR+Uniform", "HR+TopK", "HR+TopK+Uniform"])
+parser.add_argument("--traj_max_num", type=int, default=2000)
+parser.add_argument("--weighting_alpha", type=float, default=0.1)
 # HIGL: Planner, Coverage
 parser.add_argument("--landmark_sampling", type=str, choices=["fps", "none"])
 parser.add_argument('--clip_v', type=float, default=-38., help="clip bound for the planner")

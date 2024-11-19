@@ -9,28 +9,24 @@ CUDA_VISIBLE_DEVICES=${GPU} python main.py \
 --env_name "AntPush-v1" \
 --reward_shaping ${REWARD_SHAPING} \
 --algo aclg \
-\
-\
---correction_type m-OPC \
---use_model_based_rollout \
---fkm_hidden_size 256 \
---fkm_hidden_layer_num 3 \
---fkm_network_num 5 \
---fkm_batch_size 512 \
---fkm_lr 0.005 \
---fkm_obj_start_step 20000 \
---train_fkm_freq 2000 \
---osp_delta 20 \
+--correction_type OPC \
+--osp_delta 0 \
 --osp_delta_update_rate 0 \
---rollout_exp_w 0.95 \
---ctrl_mgp_lambda 0.01 \
---ctrl_osrp_lambda 0.0005 \
---ctrl_gcmr_start_step 20000 \
+--rollout_exp_w 0 \
 \
 \
---version "${REWARD_SHAPING}_gcmr" \
---goal_loss_coeff 0.02 \
+--ctrl_gp_lambda 0.0001 \
+--ctrl_gp_obs_noise 2 \
+--ctrl_gp_start_step 20000 \
 --landmark_loss_coeff 0.1 \
+--sampling_mix_mode HR \
+--traj_max_num 800 \
+--weighting_alpha 0.1 \
+\
+\
+--ctrl_osrp_lambda 0 \
+--version "${REWARD_SHAPING}_HG2P" \
+--goal_loss_coeff 0.02 \
 --delta 3.0 \
 --seed ${SEED} \
 --max_timesteps ${TIMESTEPS} \

@@ -238,6 +238,7 @@ class Manager(object):
               r_margin=None,
               total_timesteps=None,
               novelty_pq=None,
+              important_pq=None,
               fkm_obj=None,
               exp_w=1.0,
               ):
@@ -313,7 +314,8 @@ class Manager(object):
                                                      final_goal=g,
                                                      agent=controller_policy,
                                                      replay_buffer=controller_replay_buffer,
-                                                     novelty_pq=novelty_pq)
+                                                     novelty_pq=novelty_pq,
+                                                     important_pq=important_pq,)
                     if self.automatic_delta_pseudo:
                         ag2sel = np.linalg.norm(selected_landmark.cpu().numpy() - ag, axis=1).mean()
                         self.set_delta(ag2sel)
@@ -545,13 +547,13 @@ class Controller(object):
         subgoals = (subgoal + achieved_goal[:, 0, ])[:, None] - achieved_goal[:, :, ]
         return subgoals
 
-    def train(self, replay_buffer, iterations, batch_size=100, discount=0.99, tau=0.005, fkm_obj=None, mgp_lambda=.0, \
-              osrp_lambda=.0, manage_replay_buffer=None, manage_actor=None, manage_critic=None, sg_scale=None):
+    def train(self, replay_buffer, iterations, batch_size=100, discount=0.99, tau=0.005, fkm_obj=None, mgp_lambda=.0, mgp_obs_noise=1., \
+              osrp_lambda=.0, manage_replay_buffer=None, manage_actor=None, manage_critic=None, sg_scale=None, rew_scale=1.0):
 
         avg_act_loss = dict({'avg_act_loss': 0., 'avg_act_osrp_loss': 0.})
         avg_crit_loss = dict({'avg_crit_loss': 0., 'avg_mgp_loss': 0.})
 
-        use_mgp = mgp_lambda > 0 and fkm_obj is not None and fkm_obj.trained
+        use_mgp = mgp_lambda > 0
         extend_train_scale = 5
         if use_mgp:
             iterations = iterations * extend_train_scale
@@ -587,7 +589,7 @@ class Controller(object):
                           self.criterion(current_Q2, target_Q_no_grad)
 
             # critic GP
-            if use_mgp and self.mgp_interval >= 5:
+            if use_mgp and self.mgp_interval >= 5 and fkm_obj is not None and fkm_obj.trained:
                 _state_rep = state.clone().detach().repeat(16, 1).requires_grad_(True)
                 _sg = sg.clone().detach().repeat(16, 1).requires_grad_(True)
                 _random_action = torch.rand(
@@ -622,6 +624,58 @@ class Controller(object):
                 grad_q_wrt_random_action = F.relu(grad_q1_wrt_random_action - self._auto_upperbounded_k) **2 +\
                         F.relu(grad_q2_wrt_random_action - self._auto_upperbounded_k) **2
                 mgp_loss = mgp_lambda * grad_q_wrt_random_action.mean()
+                avg_crit_loss['avg_mgp_loss'] += mgp_loss
+                critic_loss += mgp_loss
+
+                self.mgp_interval = 0
+            elif use_mgp and self.mgp_interval >= 5 and fkm_obj is None:
+                # Local Lipschitzness for S_t ~ [S_t + noise(0, 1) * mgp_obs_noise]
+                _state_rep = state.clone().detach().repeat(16, 1).requires_grad_(True)
+                _state_noise = torch.rand(size=_state_rep.size(), requires_grad=True).to(device)
+                _state_added_noise = _state_rep + _state_noise * mgp_obs_noise
+                _sg_rep = sg.clone().detach().repeat(16, 1).requires_grad_(True)
+                _sg_noise = torch.rand(size=_sg_rep.size(), requires_grad=True).to(device)
+                _sg_added_noise = _sg_rep + _sg_noise * mgp_obs_noise
+                _current_Q1, _current_Q2 = self.critic(_state_added_noise, _sg_rep,
+                                                       self.actor(_state_added_noise, _sg_rep))
+                grad_q1_wrt_state = torch.autograd.grad(
+                    outputs=_current_Q1.sum(),
+                    inputs =_state_added_noise,
+                    create_graph=True)[0].norm(p=2, dim=-1)
+                grad_q2_wrt_state = torch.autograd.grad(
+                    outputs=_current_Q2.sum(),
+                    inputs =_state_added_noise,
+                    create_graph=True)[0].norm(p=2, dim=-1)
+                _current_Q1, _current_Q2 = self.critic(_state_rep, _sg_added_noise,
+                                                       self.actor(_state_rep, _sg_added_noise))
+                grad_q1_wrt_sg = torch.autograd.grad(
+                    outputs=_current_Q1.sum(),
+                    inputs =_sg_added_noise,
+                    create_graph=True)[0].norm(p=2, dim=-1)
+                grad_q2_wrt_sg = torch.autograd.grad(
+                    outputs=_current_Q2.sum(),
+                    inputs =_sg_added_noise,
+                    create_graph=True)[0].norm(p=2, dim=-1)
+                # Compute the upper bounds.
+                _, _, _, _, _dg, _, _, _, _, _, _ = manage_replay_buffer.sample(batch_size)
+                _dg = get_tensor(_dg).repeat(16, 1)
+                _dg = _dg[torch.randperm(len(_dg))] # shuffle
+                hpi_wrt_st = torch.autograd.grad(
+                    outputs=(manage_actor(_state_rep, _dg)).sum(),
+                    inputs =_state_rep,
+                    create_graph=True)[0]
+                N_s_sqrt = np.math.sqrt(_state_rep.size(1))
+                N_sg_sqrt = np.math.sqrt(_sg_rep.size(1))
+                pi_wrt_st_1 = hpi_wrt_st.norm(p=2, dim=-1).max() / len(_state_rep) + int(self.absolute_goal) * N_sg_sqrt
+                pi_wrt_st_2 = N_sg_sqrt + int(self.absolute_goal) * (1 / torch.clamp(torch.abs(hpi_wrt_st[..., :_sg_rep.size(1)]), min=1e-6)).norm(p=2, dim=-1).max() / len(_state_rep)
+                _auto_upperbounded_k_1 = N_s_sqrt / (1 - discount) * pi_wrt_st_1.detach()
+                _auto_upperbounded_k_2 = N_sg_sqrt / (1 - discount) * pi_wrt_st_2.detach()
+                self._auto_upperbounded_k = 0.5 * (_auto_upperbounded_k_1 + _auto_upperbounded_k_2)
+                grad_q_wrt_state = F.relu(grad_q1_wrt_state - _auto_upperbounded_k_1) **2 +\
+                            F.relu(grad_q2_wrt_state - _auto_upperbounded_k_1) **2
+                grad_q_wrt_sg = F.relu(grad_q1_wrt_sg - _auto_upperbounded_k_2) **2 +\
+                            F.relu(grad_q2_wrt_sg - _auto_upperbounded_k_2) **2
+                mgp_loss = mgp_lambda * 0.5 * (grad_q_wrt_state.mean() + grad_q_wrt_sg.mean()) * rew_scale
                 avg_crit_loss['avg_mgp_loss'] += mgp_loss
                 critic_loss += mgp_loss
 

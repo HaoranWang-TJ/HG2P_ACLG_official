@@ -1,6 +1,3 @@
-> # :sweat_drops: :seedling: :point_right: :sunflower: :sun_with_face: :ear_of_rice: The code will be released soon ...
-
-
 # HG2P: Hippocampus-inspired High-reward Graph and Model-Free Q-Gradient Penalty for Path Planning and Motion Control
 This is a PyTorch implementation for our paper: [HG2P: Hippocampus-inspired High-reward Graph and Model-Free Q-Gradient Penalty for Path Planning and Motion Control](https://arxiv.org/abs/2410.09505).
 
@@ -67,13 +64,6 @@ e.g., cp mjkey.txt ~/.mujoco/mjkey.txt
 
 ## Usage
 ### Training & Evaluation
-- Point Maze
-```
-./scripts/aclg_gcmr_point_maze.sh ${reward_shaping} ${timesteps} ${gpu} ${seed}
-./scripts/aclg_gcmr_point_maze.sh sparse 5e5 0 2
-./scripts/aclg_gcmr_point_maze.sh dense 5e5 0 2
-```
-
 - Ant Maze (U-shape)
 ```
 ./scripts/aclg_gcmr_ant_maze_u.sh ${reward_shaping} ${timesteps} ${gpu} ${seed}
@@ -81,58 +71,9 @@ e.g., cp mjkey.txt ~/.mujoco/mjkey.txt
 ./scripts/aclg_gcmr_ant_maze_u.sh dense 7e5 0 2
 ```
 
-- Ant Maze (W-shape)
-```
-./scripts/aclg_gcmr_ant_maze_w.sh ${reward_shaping} ${timesteps} ${gpu} ${seed}
-./scripts/aclg_gcmr_ant_maze_w.sh sparse 6e5 0 2
-./scripts/aclg_gcmr_ant_maze_w.sh dense 6e5 0 2
-```
-
-- Reacher & Pusher
-```
-./scripts/aclg_gcmr_fetch.sh ${env} ${timesteps} ${gpu} ${seed}
-./scripts/aclg_gcmr_fetch.sh Reacher3D-v0 5e5 0 2
-./scripts/aclg_gcmr_fetch.sh Pusher-v0 5e5 0 2
-```
-
-- FetchPickAndPlace & FetchPush
-```
-./scripts/aclg_gcmr_openai_fetch.sh ${env} ${timesteps} ${gpu} ${seed}
-./scripts/aclg_gcmr_openai_fetch.sh FetchPickAndPlace-v1 10e5 0 2
-./scripts/aclg_gcmr_openai_fetch.sh FetchPush-v1 5e5 0 2
-```
-
-- Stochastic Ant Maze (U-shape)
-```
-./scripts/aclg_gcmr_ant_maze_u_stoch.sh ${reward_shaping} ${timesteps} ${gpu} ${seed}
-./scripts/aclg_gcmr_ant_maze_u_stoch.sh sparse 7e5 0 2
-./scripts/aclg_gcmr_ant_maze_u_stoch.sh dense 7e5 0 2
-```
-
-- Large Ant Maze (U-shape)
-```
-./scripts/aclg_gcmr_ant_maze_u_large.sh ${reward_shaping} ${timesteps} ${gpu} ${seed}
-./scripts/aclg_gcmr_ant_maze_u_large.sh sparse 12e5 0 2
-./scripts/aclg_gcmr_ant_maze_u_large.sh dense 12e5 0 2
-```
-
-- Ant Maze Bottleneck
-```
-./scripts/aclg_gcmr_ant_maze_bottleneck.sh ${reward_shaping} ${timesteps} ${gpu} ${seed}
-./scripts/aclg_gcmr_ant_maze_bottleneck.sh sparse 7e5 0 2
-./scripts/aclg_gcmr_ant_maze_bottleneck.sh dense 7e5 0 2
-```
-
 - Ant Push
 ```
 ./scripts/aclg_gcmr_ant_push.sh ${reward_shaping} ${timesteps} ${gpu} ${seed}
 ./scripts/aclg_gcmr_ant_push.sh sparse 7e5 0 2
 ./scripts/aclg_gcmr_ant_push.sh dense 7e5 0 2
-```
-
-- Ant Maze Complex
-```
-./scripts/aclg_gcmr_ant_maze_complex.sh ${reward_shaping} ${timesteps} ${gpu} ${seed}
-./scripts/aclg_gcmr_ant_maze_complex.sh sparse 30e5 0 2
-./scripts/aclg_gcmr_ant_maze_complex.sh dense 30e5 0 2
 ```

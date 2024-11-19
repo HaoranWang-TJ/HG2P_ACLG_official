@@ -77,20 +77,32 @@ class Planner:
 
         # Sample Coverage-based landmarks
         if self.landmark_cov_sampling == "fps":
-            # build a pool of states
-            random_idx = np.random.choice(len(landmarks), self.initial_sample)
-            state = state[random_idx]
-            landmarks = landmarks[random_idx]
-            achieved_goal = achieved_goal[random_idx]
+            if self.important_pq is not None:
+                state_important = self.important_pq.get_states(self.initial_sample)
+                landmarks_important = self.important_pq.get_landmarks(self.initial_sample)
+                if 'Uniform' in self.important_pq.mix_mode:
+                    random_idx = np.random.choice(len(landmarks), self.initial_sample)
+                    state_important =torch.cat((state_important, torch.FloatTensor(state[random_idx]).to(self.agent.device)), dim=0)
+                    landmarks_important =torch.cat((landmarks_important, torch.FloatTensor(landmarks[random_idx]).to(self.agent.device)), dim=0)
+                idx = farthest_point_sample(landmarks_important, self.n_landmark_cov, device=self.agent.device)
+                state = state_important[idx]
+                achieved_goal = landmarks_important[idx]
+                landmarks = landmarks_important[idx]
+            else:
+                # build a pool of states
+                random_idx = np.random.choice(len(landmarks), self.initial_sample)
+                state = state[random_idx]
+                landmarks = landmarks[random_idx]
+                achieved_goal = achieved_goal[random_idx]
 
-            idx = farthest_point_sample(landmarks, self.n_landmark_cov, device=self.agent.device)
-            state = state[idx]
-            landmarks = landmarks[idx]
-            achieved_goal = achieved_goal[idx]
+                idx = farthest_point_sample(landmarks, self.n_landmark_cov, device=self.agent.device)
+                state = state[idx]
+                landmarks = landmarks[idx]
+                achieved_goal = achieved_goal[idx]
 
-            state = torch.Tensor(state).to(self.agent.device)
-            landmarks = torch.Tensor(landmarks).to(self.agent.device)
-            achieved_goal = torch.Tensor(achieved_goal).to(self.agent.device)
+                state = torch.Tensor(state).to(self.agent.device)
+                landmarks = torch.Tensor(landmarks).to(self.agent.device)
+                achieved_goal = torch.Tensor(achieved_goal).to(self.agent.device)
 
             if state.ndim == 1:
                 print("Warning: coverage based landmark num: 1")
@@ -131,10 +143,11 @@ class Planner:
 
         return self.landmarks_cov_nov_fg, self.dists_ld2goal
 
-    def __call__(self, cur_obs, cur_ag, final_goal, agent, replay_buffer, novelty_pq):
+    def __call__(self, cur_obs, cur_ag, final_goal, agent, replay_buffer, novelty_pq, important_pq,):
         self.agent = agent
         self.replay_buffer = replay_buffer
         self.novelty_pq = novelty_pq
+        self.important_pq = important_pq
 
         if isinstance(cur_obs, np.ndarray):
             cur_obs = torch.Tensor(cur_obs).to(self.agent.device)
