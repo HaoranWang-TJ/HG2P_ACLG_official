@@ -557,6 +557,7 @@ class TrajRwdQueueHR(TrajRwdQueueRW):
         T = self.T
         G_it = np.asarray(reduce(lambda x, y: x + y, [[G_i] * T_i for G_i, T_i in zip(G, T)]))
         s0g = np.hstack([np.array(self.s0)[..., :3], self.goals])
+        # TODO: Consider utilizing a nonlinear estimator!!!
         V = LinearRegression(n_jobs=n_jobs).fit(s0g, G).predict(s0g)
         V_it = np.asarray(reduce(lambda x, y: x + y, [[V_i] * T_i for V_i, T_i in zip(V, T)]))
         A_it = G_it - V_it

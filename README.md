@@ -3,6 +3,9 @@ This is a PyTorch implementation for our paper: [HG2P: Hippocampus-inspired High
 
 Our code is based on official implementation of [HIGL](https://github.com/junsu-kim97/HIGL) (NeurIPS 2021).
 
+### Bug Fix
+:bug::pushpin: [2024-12-11] We have identified an implementation bug that significantly impacts the algorithm's performance and results: we are currently using a linear estimator ([LinearRegression](https://github.com/HaoranWang-TJ/HG2P_ACLG_official/blob/main/algo/utils.py#L560)) to estimate the expected return of the initial-state-final-goal pair <s_0, g>. However, the relationship between the initial-state-final-goal pair and the final episodic reward is inherently nonlinear. To address this, we are transitioning to a nonlinear estimator, which will be introduced in the next version.
+
 ## Branch Tree
 We implemented our code based on our another repository [GCMR_ACLG_official](https://github.com/HaoranWang-TJ/GCMR_ACLG_official), which serves as a baseline and comparison.
 This repository was implemented as follows:
