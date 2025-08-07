@@ -7,10 +7,12 @@ import numpy as np
 import pandas as pd
 
 import random
+import copy
 
 from functools import total_ordering, reduce
 from scipy.special import softmax
 from sklearn.linear_model import LinearRegression
+from sklearn.ensemble import RandomForestRegressor, GradientBoostingRegressor
 # from algo.higl import var
 
 from itertools import compress
@@ -439,7 +441,7 @@ class PriorityQueue:
 
 class TrajRwdQueue:
 
-    def __init__(self, traj_max_num=2000):
+    def __init__(self, elem_max_num=2e5):
         self.elems = []
         # rewards
         self.G = []
@@ -452,18 +454,19 @@ class TrajRwdQueue:
         self.elems_state_tensor = None
         self.elems_achieved_goal_tensor = None
 
-        self.max_size = traj_max_num
+        self.max_size = elem_max_num
+        self.percent_of_replaced = 0.1
 
     def __len__(self):
         return len(self.elems)
 
     def add(self, state_traj, achieved_goal_traj, reward, goal=None):
         new_elems = StorageElement(state=state_traj, achieved_goal=achieved_goal_traj, score=reward)
-        if len(self.elems) >= self.max_size:
+        if np.sum(self.T) >= self.max_size:
             s0g = np.hstack([state_traj[0], goal])
             s0gs = np.hstack([self.s0, self.goals])
             s0gs_mse_sorti = np.argsort(np.sum((s0gs - s0g) ** 2, axis=-1))
-            s0gs_mse_sorti = s0gs_mse_sorti[:int(self.max_size * 0.1)]
+            s0gs_mse_sorti = s0gs_mse_sorti[:int(len(self.T) * self.percent_of_replaced)]
             replaced_i = np.argsort(np.array(self.G)[s0gs_mse_sorti])[0]
             replaced_i = s0gs_mse_sorti[replaced_i]
             if self.G[replaced_i] <= reward:
@@ -512,16 +515,27 @@ class TrajRwdQueue:
 
 class TrajRwdQueueRW(TrajRwdQueue):
 
-    def __init__(self, traj_max_num=2000, alpha=0.1, mix_mode='HR'):
+    def __init__(self, elem_max_num=2e5, alpha=0.1, mix_mode='HR'):
         self.alpha = alpha, # Temperature of the softmax. The higher, the closer to uniform distribution.
         self.mix_mode = mix_mode # TopK, HR, RW, {TopK} U {HR}, {Uniform} U {HR}, {TopK} U {Uniform} U {HR}
-        super().__init__(traj_max_num)
+        self._sample_weights = None
+        super().__init__(elem_max_num)
+
+    def add(self, state_traj, achieved_goal_traj, reward, goal=None):
+        # Need to recompute sample weights.
+        self._sample_weights = None
+        super().add(state_traj, achieved_goal_traj, reward, goal)
+
+    @property
+    def sample_weights(self):
+        if self._sample_weights is None:
+            self._sample_weights = self._compute_sample_probs()
+        return self._sample_weights
 
     def get_states(self, sample_num=1e4):
         if 'TopK' in self.mix_mode:
             super().get_states(sample_num)
         if 'HR' in self.mix_mode or 'RW' in self.mix_mode:
-            _sample_probs = self._compute_sample_probs()
             _states, _ = unravel_elems(self.elems)
             _states = [item for trajs in _states for item in trajs]
             _ags, _ = unravel_elems_ag(self.elems)
@@ -529,7 +543,7 @@ class TrajRwdQueueRW(TrajRwdQueue):
             _cache_indices = np.random.choice(
                 range(len(_states)),
                 sample_num,
-                p=_sample_probs)
+                p=self.sample_weights)
             if 'TopK' in self.mix_mode:
                 self.elems_state_tensor = torch.cat((torch.FloatTensor(np.array(_states)[_cache_indices]).to(device), self.elems_state_tensor), dim=0)
                 self.elems_achieved_goal_tensor = torch.cat((torch.FloatTensor(np.array(_ags)[_cache_indices]).to(device), self.elems_achieved_goal_tensor), dim=0)
@@ -539,8 +553,8 @@ class TrajRwdQueueRW(TrajRwdQueue):
         return self.elems_state_tensor
 
     def _compute_sample_probs(self):
-        G = self.G
-        T = self.T
+        G = copy.deepcopy(self.G)
+        T = copy.deepcopy(self.T)
         G_it = np.asarray(reduce(lambda x, y: x + y, [[G_i] * T_i for G_i, T_i in zip(G, T)]))
         w_it = (G_it - G_it.min()) / (G_it.max() - G_it.min())
         w_it = softmax(G_it / self.alpha)
@@ -549,16 +563,33 @@ class TrajRwdQueueRW(TrajRwdQueue):
 
 class TrajRwdQueueHR(TrajRwdQueueRW):
 
-    def __init__(self, traj_max_num=2000, alpha=0.1, mix_mode='HR'):
-        super().__init__(traj_max_num, alpha, mix_mode)
+    def __init__(self, elem_max_num=2e5, alpha=0.1, mix_mode='HR', random_seed=42):
+        self.random_seed = random_seed
+        super().__init__(elem_max_num, alpha, mix_mode)
 
     def _compute_sample_probs(self, n_jobs=16):
-        G = self.G
-        T = self.T
+        G = copy.deepcopy(self.G)
+        T = copy.deepcopy(self.T)
         G_it = np.asarray(reduce(lambda x, y: x + y, [[G_i] * T_i for G_i, T_i in zip(G, T)]))
-        s0g = np.hstack([np.array(self.s0)[..., :3], self.goals])
-        # TODO: Consider utilizing a nonlinear estimator!!!
-        V = LinearRegression(n_jobs=n_jobs).fit(s0g, G).predict(s0g)
+        s0g = np.hstack([self.s0, self.goals])
+
+        rf = RandomForestRegressor(random_state=self.random_seed)
+        rf.fit(s0g, G)
+        importance = rf.feature_importances_
+
+        Feature_N = 6
+        sorted_indices = np.argsort(importance)[::-1]
+        selected_indices = sorted_indices[:Feature_N]
+        s0g_selected = s0g[..., selected_indices]
+        print(f"Selected feature shape: {s0g_selected.shape}")
+
+        if len(s0g) >= 250:
+            print('Using LinearRegression to estimate V, with the total number of samples:', sum(self.T))
+            V = LinearRegression().fit(s0g_selected, G).predict(s0g_selected)
+        else:
+            print('Using GradientBoostingRegressor to estimate V, with the total number of samples:', sum(self.T))
+            V = GradientBoostingRegressor(n_estimators=50, random_state=self.random_seed).fit(s0g_selected, G).predict(s0g_selected)
+
         V_it = np.asarray(reduce(lambda x, y: x + y, [[V_i] * T_i for V_i, T_i in zip(V, T)]))
         A_it = G_it - V_it
         A_it = (A_it - A_it.min()) / np.clip(A_it.max() - A_it.min(), a_min=1e-6, a_max=None)

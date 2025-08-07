@@ -395,8 +395,8 @@ def run_higl(args):
             RND = higl.RandomNetworkDistillation(rnd_input_dim, args.rnd_output_dim, args.rnd_lr, args.use_ag_as_input)
             print("Novelty PQ is generated")
             if 'TopK' in args.sampling_mix_mode or 'RW' in args.sampling_mix_mode or 'HR' in args.sampling_mix_mode:
-                important_pq = utils.TrajRwdQueueHR(traj_max_num=args.traj_max_num, alpha=args.weighting_alpha,
-                                                    mix_mode=args.sampling_mix_mode)
+                important_pq = utils.TrajRwdQueueHR(elem_max_num=args.hr_buffer_max_size, alpha=args.weighting_alpha,
+                                                    mix_mode=args.sampling_mix_mode, random_seed=args.seed)
                 if args.load_replay_buffer:
                     important_pq.load("{}/{}_{}_{}_{}_important_pq_buffer.npz".format(args.save_dir, args.env_name, args.algo, args.version, args.seed))
                     novelty_pq.load("{}/{}_{}_{}_{}_novelty_pq_buffer.npz".format(args.save_dir, args.env_name, args.algo, args.version, args.seed))
@@ -409,6 +409,7 @@ def run_higl(args):
     else:
         novelty_pq = None
         RND = None
+        important_pq = None
 
     ctrl_lossls = utils.LossesList()
     man_lossls = utils.LossesList()
@@ -624,7 +625,8 @@ def run_higl(args):
                     if args.save_replay_buffer:
                         manager_buffer.save("{}/{}_{}_{}_{}_manager_buffer".format(args.save_dir, args.env_name, args.algo, args.version, args.seed))
                         controller_buffer.save("{}/{}_{}_{}_{}_controller_buffer".format(args.save_dir, args.env_name, args.algo, args.version, args.seed))
-                        important_pq.save("{}/{}_{}_{}_{}_important_pq_buffer".format(args.save_dir, args.env_name, args.algo, args.version, args.seed))
+                        if important_pq is not None:
+                            important_pq.save("{}/{}_{}_{}_{}_important_pq_buffer".format(args.save_dir, args.env_name, args.algo, args.version, args.seed))
                         novelty_pq.save("{}/{}_{}_{}_{}_novelty_pq_buffer".format(args.save_dir, args.env_name, args.algo, args.version, args.seed))
 
                 # Train adjacency network

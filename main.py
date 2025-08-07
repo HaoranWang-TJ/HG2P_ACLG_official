@@ -97,7 +97,7 @@ parser.add_argument("--adj_factor", default=0.5, type=float)
 
 # TODO: HG2P: Weighted Sampling
 parser.add_argument("--sampling_mix_mode", type=str, default='HR', choices=["Uniform", "HR", "TopK", "HR+Uniform", "HR+TopK", "HR+TopK+Uniform"])
-parser.add_argument("--traj_max_num", type=int, default=2000)
+parser.add_argument("--hr_buffer_max_size", type=int, default=2e5)
 parser.add_argument("--weighting_alpha", type=float, default=0.1)
 # HIGL: Planner, Coverage
 parser.add_argument("--landmark_sampling", type=str, choices=["fps", "none"])
